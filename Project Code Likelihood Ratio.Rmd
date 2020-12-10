@@ -1,0 +1,1212 @@
+---
+title: "Likelihood Ratios Method"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+```
+
+*Reference Paper: Broadie, M. and Glasserman, P. (1996). Estimating security price derivatives using simulation, Management Science 42, 269–285.*
+
+# 1. European Call Options on Dividend Paying Assets
+
+## Likelihood Ratio method (w/o control variates)
+
+> List #1.
+
+The Likelihood ratio estimators:
+$$                      
+Vega(\frac{dp}{d\sigma}) = e^{-rT}\max(S_T - K,0)(-d*\frac{\partial d}{\partial\sigma}- \frac{1}{\sigma}) \notag\\ 
+Delta(\frac{dp}{dS_0}) = e^{-rT}\max(S_T - K, 0)\frac{1}{S_0\sigma^2T}\times(ln(\frac{S_T}{S_0})-(r-\delta-\frac{1}{2}\sigma^2)T) \notag\\
+Gamma(\frac{d^2p}{dS_0^2}) = e^{-rT}\max(S_T - K, 0)\frac{d^2-d\sigma\sqrt{T}-1}{S_0^2\sigma^2T} \notag\\
+Rho(\frac{dp}{dr}) = e^{-rT}\max(S_T - K, 0)(-T+\frac{d\sqrt{T}}{\sigma}) \notag\\              
+Theta(-\frac{dp}{dT}) = e^{-rT}\max(S_T - K, 0)(r+d\frac{\partial d}{\partial T} + \frac{1}{2T}) \notag\\
+$$
+
+Where $S_T \text{ is given by } S_T = S_{t_i}= S_0e^{(r-\delta-\frac{\sigma^2}{2})T+\sigma\sqrt{T}Z_i}\text{with } Z_i\text{ a random standard normal distributed for i = 1,...,n}$ and by inversion we are approximating standard normal $Z_i$ by $\Phi^{-1}(U_i)$ with $U_i \sim i.i.d.Unifrom(0,1)$ random uniform over domain on (0,1). ($\Phi^{-1}(\cdot)$ is the CDF of standard normal distribution)
+
+And $\frac{\partial d}{\partial\sigma}$, $d$, and $\frac{\partial d}{\partial T}$ are given by
+$$
+\frac{\partial d}{\partial\sigma} = (ln(\frac{S_0}{S_T})+(r-\delta+\frac{1}{2}\sigma^2)T)/(\sigma^2\sqrt{T})\notag\\
+d = d(S_T) = (ln(\frac{S_T}{S_0})-(r-\delta-\frac{1}{2}\sigma^2)T)/(\sigma\sqrt{T})\notag\\
+\frac{\partial d}{\partial T} = (-ln(\frac{S_T}{S_0})-(r-\delta-\frac{1}{2}\sigma^2)T)/(2\sigma^2T^{3/2})\notag
+$$
+
+Thus, the simulation estimator for price of the European Call option with dividend paying assets is given by 
+$$\hat{C}_{re} = \frac{1}{n}\sum_{i=1}^ne^{-rT}\max(S_{t_i}-K,0)$$ where, 
+$$S_{t_i} = S_0e^{(r-\delta-\frac{\sigma^2}{2})T-\sigma\sqrt{T}\Phi^{-1}(U_i)}$$ in this case, by inversion we are approximating standard normal Z by $\Phi^{-1}(U_i)$ with $U_i \sim i.i.d.Unifrom(0,1)$ random uniform over domain on (0,1).
+
+And the estimator for $Delta$ using the Pathwise method for example is
+$$
+\begin{align}
+\hat{Delta}_{LR} &= \frac{1}{n}\sum_{i=1}^n e^{-rT}\max(S_{t_i} - K, 0)\frac{1}{S_0\sigma^2T}\times(ln(\frac{S_{t_i}}{S_0})-(r-\delta-\frac{1}{2}\sigma^2)T)\notag
+\end{align}
+$$
+depending on parameter of interest from **List #1.**.
+
+**Define function for estimating European Call options derivatives using Likelihood ratio method under BS model**
+
+variables                      output 
+--------------------           -----------------------------------
+n: # of simulations            hat_LR: the estimated derivatives of an European call option using Likelihood Ratio
+S0: the spot price             hat_LR_std_err: the standard error for estimating the derivatives of an European call option using Likelihood Ratio
+r: the rate of return
+sigma: volatility              
+T: maturity date
+K: strike price
+delta: dividend
+input: 'delta', 'vega',etc...
+
+```{r}
+Likelihood <- function(n, S0, r, sigma, T, K, delta, input)
+{
+  # create length n random normal vector before simulations
+  zi = qnorm(runif(n,0,1))
+  
+  # create derivatives to store the estimated Greeks at each simulation
+  derivatives = matrix(0,n,1)
+  
+  # the stock simulated at one run
+  stock = S0 * exp((r - delta - sigma^2/2)*T 
+                            + sigma * sqrt(T) * zi)
+  
+  if(input == 'delta')
+  {
+    # gives estimate for delta
+    derivatives = exp(-r*T)*pmax(stock-K,0)*1/(S0*sigma^2*T)*
+                  (log(stock/S0)-(r-delta-1/2*sigma^2)*T)
+    # determine the estimator for delta of a plain call option
+    hat_LR = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_LR_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_LR, hat_LR_std_err))
+    
+  }else if (input == 'vega'){
+    # define d
+    d = (log(stock/S0)-(r-delta-1/2*sigma^2)*T)/(sigma*sqrt(T))
+    # define d(d)/d(sigma)
+    d_sigma = (log(S0/stock)+(r-delta+1/2*sigma^2)*T)/(sigma^2*sqrt(T))
+    
+    # gives estimate for vega
+    derivatives = exp(-r*T) *pmax(stock-K,0)*(-d*d_sigma-1/sigma)
+    
+    # determine the estimator for vega of a plain call option
+    hat_LR = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_LR_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_LR, hat_LR_std_err))
+  
+  }else if (input == 'gamma'){
+    # define d
+    d = (log(stock/S0)-(r-delta-1/2*sigma^2)*T)/(sigma*sqrt(T))
+    
+    # gives estimate for gamma
+    derivatives = exp(-r*T) *pmax(stock-K,0)*(d^2-d*sigma*sqrt(T)-1)/
+                  (S0^2*sigma^2*T)
+    
+    # determine the estimator for gamma of a plain call option
+    hat_LR = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_LR_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_LR, hat_LR_std_err))
+    
+  }else if (input == 'rho'){
+    # define d
+    d = (log(stock/S0)-(r-delta-1/2*sigma^2)*T)/(sigma*sqrt(T))
+    
+    # gives estimate for rho
+    derivatives = exp(-r*T) *pmax(stock-K,0)*(-T+d*sqrt(T)/sigma)
+    
+    # determine the estimator for rho of a plain call option
+    hat_LR = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_LR_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_LR, hat_LR_std_err))
+    
+  }else if (input == 'theta'){
+    # define d
+    d = (log(stock/S0)-(r-delta-1/2*sigma^2)*T)/(sigma*sqrt(T))
+    
+    # define d(d)/d(T)
+    d_T = (-log(stock/S0)-(r-delta-1/2*sigma^2)*T)/(2*sigma*T^(3/2))
+    
+    # gives estimate for theta for each simulation
+    derivatives = exp(-r*T) *pmax(stock-K,0)*(r+d*d_T+1/(2*T))
+      
+    # determine the estimator for theta of a plain call option
+    hat_LR = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_LR_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_LR, hat_LR_std_err))
+    
+  }else{
+    cat('Please type in the proper name of the derivative! e.g. delta, gamma etc.')
+  }
+}
+```
+
+**initialized variables as the article suggested**
+```{r}
+# set variables
+n = 10000 # simulation tuns
+# S0 = 110
+# S0 = 110
+S0 = 110
+r = 0.1
+K = 100 
+delta = 0.03
+sigma = 0.25
+T = 0.2
+```
+
+**$Delta$**
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Likelihood(n, S0, r, sigma, T, K, delta, 'delta')
+proc.time() - ptm
+Delta_re = result[1]
+Delta_re_Std_err = result[2]
+
+result = cbind(mean(Delta_re), mean(Delta_re_Std_err))
+colnames(result) = c('Delta uisng Likelihood Ratio Method', 'Std Err')
+kable(result)
+```
+
+**$Vega$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Likelihood(n, S0, r, sigma, T, K, delta, 'vega')
+proc.time() - ptm
+Vega_re = result[1]
+Vega_re_Std_err = result[2]
+
+result = cbind(mean(Vega_re), mean(Vega_re_Std_err))
+colnames(result) = c('Vega uisng Likelihood Ratio Method', 'Std Err')
+kable(result)
+```
+
+**$Gamma$**
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Likelihood(n, S0, r, sigma, T, K, delta, 'gamma')
+proc.time() - ptm
+Gamma_re = result[1]
+Gamma_re_Std_err = result[2]
+
+result = cbind(mean(Gamma_re), mean(Gamma_re_Std_err))
+colnames(result) = c('Gamma uisng Likelihood Ratio Method', 'Std Err')
+kable(result)
+```
+
+**$Rho$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Likelihood(n, S0, r, sigma, T, K, delta, 'rho')
+proc.time() - ptm
+Rho_re = result[1]
+Rho_re_Std_err = result[2]
+
+result = cbind(mean(Rho_re), mean(Rho_re_Std_err))
+colnames(result) = c('Rho uisng Likelihood Ratio Method', 'Std Err')
+kable(result)
+```
+
+**$Theta$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Likelihood(n, S0, r, sigma, T, K, delta, 'theta')
+proc.time() - ptm
+Theta_re = result[1]
+Theta_re_Std_err = result[2]
+
+result = cbind(mean(Theta_re), mean(Theta_re_Std_err))
+colnames(result) = c('Theta uisng Likelihood Ratio Method', 'Std Err')
+kable(result)
+```
+
+## Likelihood Ratio method (w control variates)
+
+For consistency, we use the same control variate, the terminal security price, for European call option example. (and so as for Asian Call option and Stochastic volatility options)
+
+
+We denote the unbiased simulation estimator of the derivatives as $D$, specifically the exact Likelihood Ratio estimators defined as before. i.e. ($Vega(\frac{dp}{d\sigma})$,$Delta(\frac{dp}{dS_0})$ etc.)
+
+
+That is, d = E[D], where d is the true value of derivative to be estimated. We consider letting $S_T$ represent the simulated terminal underlying price of the security. Since E[$S_T$] = $e^{(r-\delta)T}S_0$, as for $ln(\frac{S_T}{S0})\sim N((r-\delta-\frac{\sigma^2}{2})T,\sigma^2T)$, then $exp(ln(\frac{S_T}{S0})) = \frac{S_T}{S0}$ has a log normal distribution with mean $E[\frac{S_T}{S0}] = e^{((r-\delta-\frac{\sigma^2}{2})T+(\sigma \sqrt{T})^2/2)} = e^{(r-\delta)T}$ i.e.E[$S_T$] = $e^{(r-\delta)T}S_0$
+
+
+Thus, to estimate E[D], we have found a r.v. $S_T$ correlated with D and such that $\sum_{i=1}^n\frac{S_T}{n} = E[S_T]$ is known. Then, we can obtained an unbiased estimator of derivative using control variate:
+
+$$
+D' = \frac{1}{n}\sum_{i=1}^{n}D_i+\beta(S_{T_i}-e^{(r-\delta)T}S_0)
+$$
+where $D_i$ are the unbiased Liklihood Ratio estimators for the derivatives at each n simulations and $S_{T_i} = S_0e^{(r-\delta-\frac{\sigma^2}{2})T+\sigma\sqrt{T}Z_i}\text{with } Z_i\text{ a random standard normal distributed for i = 1,...,n}$ and by inversion we are approximating standard normal $Z_i$ by $\Phi^{-1}(U_i)$ with $U_i \sim i.i.d.Unifrom(0,1)$ random uniform over domain on (0,1). ($\Phi^{-1}(\cdot)$ is the CDF of standard normal distribution)
+
+
+In this case, $\beta$ can be chosen to minimized $Var(D')$ i.e. $\min_{\beta}(Var(D'))$ so that if the estimator D are regressed on $S_T$, the slope of the regression line solves the minimization problem, i.e. want to find $\beta$ that minmized $Var(D')$
+
+$$
+\begin{align}
+\frac{\partial}{\partial\beta}Var(D') &= \frac{\partial}{\partial\beta}[\frac{(Var(D))^2}{n}+\frac{\beta^2}{n}Var(S_T)-\frac{2\beta}{n}Cov(D,S_T)]\notag\\
+&=\frac{2\beta}{n}Var(S_T)-\frac{2}{n}Cov(D,S_T) = 0 \notag\\
+&\Rightarrow \beta^* = \frac{Cov(D,ST)}{Var(S_T)}
+\end{align}
+$$
+where $Var(D)$ is the sample variance of the simulation using the Liklihood Ratio estimator i.e. $Var(D) = \frac{1}{n-1}\sum_{i=1}^{n}(D_i - \hat{D})^2$ and one can check it's a minimum: $\frac{\partial^2Var(D')}{\partial\beta^2} = \frac{2}{n}Var(S_T) \geq 0$ (Concave upward, min exists).
+
+**Define function for estimating European Call options derivatives using Liklihood Ratio method under BS model with control variate**
+
+variables                      output 
+--------------------           -----------------------------------
+n: # of simulations            hat_path_cv: the estimated derivatives of an European call option using Liklihood Ratio method with CV method
+S0: the spot price             hat_path_cv_std_err: the standard error for estimating the derivatives of an European call option using Liklihood Ratio method with CV method
+r: the rate of return
+sigma: volatility              
+T: maturity date
+K: strike price
+delta: dividend
+input: 'delta', 'vega',etc...
+
+```{r}
+Likelihood_cv<- function(n, S0, r, sigma, T, K, delta, input)
+{
+  # define E[S_T] as S_T_i
+  S_T_i = S0 * exp((r - delta)*T)
+  
+  # create length n random normal vector before simulations
+  zi = qnorm(runif(n,0,1))
+  
+  # create derivatives to store the estimated Greeks at each simulation
+  derivatives = matrix(0,n,1)
+  
+  # the stock simulated at one run
+  stock = S0 * exp((r - delta - sigma^2/2)*T 
+                            + sigma * sqrt(T) * zi)
+  
+  if(input == 'delta')
+  {
+    # gives estimate for delta
+    derivatives = exp(-r*T)*pmax(stock-K,0)*1/(S0*sigma^2*T)*
+                  (log(stock/S0)-(r-delta-1/2*sigma^2)*T)
+    # estimate beta
+    beta = c(cov(derivatives, stock)/ var(stock))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - stock)
+    
+    # determine the estimator for delta of a plain call option
+    hat_LR_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_LR_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_LR_cv, hat_LR_cv_std_err))
+    
+  }else if (input == 'vega'){
+    # define d
+    d = (log(stock/S0)-(r-delta-1/2*sigma^2)*T)/(sigma*sqrt(T))
+    # define d(d)/d(sigma)
+    d_sigma = (log(S0/stock)+(r-delta+1/2*sigma^2)*T)/(sigma^2*sqrt(T))
+    
+    # gives estimate for vega
+    derivatives = exp(-r*T) *pmax(stock-K,0)*(-d*d_sigma-1/sigma)
+    
+    # estimate beta
+    beta = c(cov(derivatives, stock)/ var(stock))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - stock)
+    
+    # determine the estimator for delta of a plain call option
+    hat_LR_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_LR_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_LR_cv, hat_LR_cv_std_err))
+  
+  }else if (input == 'gamma'){
+    # define d
+    d = (log(stock/S0)-(r-delta-1/2*sigma^2)*T)/(sigma*sqrt(T))
+    
+    # gives estimate for gamma
+    derivatives = exp(-r*T) *pmax(stock-K,0)*(d^2-d*sigma*sqrt(T)-1)/
+                  (S0^2*sigma^2*T)
+    
+    # estimate beta
+    beta = c(cov(derivatives, stock)/ var(stock))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - stock)
+    
+    # determine the estimator for delta of a plain call option
+    hat_LR_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_LR_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_LR_cv, hat_LR_cv_std_err))
+    
+  }else if (input == 'rho'){
+    # define d
+    d = (log(stock/S0)-(r-delta-1/2*sigma^2)*T)/(sigma*sqrt(T))
+    
+    # gives estimate for rho
+    derivatives = exp(-r*T) *pmax(stock-K,0)*(-T+d*sqrt(T)/sigma)
+    
+    # estimate beta
+    beta = c(cov(derivatives, stock)/ var(stock))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - stock)
+    
+    # determine the estimator for delta of a plain call option
+    hat_LR_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_LR_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_LR_cv, hat_LR_cv_std_err))
+    
+  }else if (input == 'theta'){
+    # define d
+    d = (log(stock/S0)-(r-delta-1/2*sigma^2)*T)/(sigma*sqrt(T))
+    
+    # define d(d)/d(T)
+    d_T = (-log(stock/S0)-(r-delta-1/2*sigma^2)*T)/(2*sigma*T^(3/2))
+    
+    # gives estimate for theta for each simulation
+    derivatives = exp(-r*T) *pmax(stock-K,0)*(r+d*d_T+1/(2*T))
+      
+    # estimate beta
+    beta = c(cov(derivatives, stock)/ var(stock))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - stock)
+    
+    # determine the estimator for delta of a plain call option
+    hat_LR_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_LR_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_LR_cv, hat_LR_cv_std_err))
+    
+  }else{
+    cat('Please type in the proper name of the derivative! e.g. delta, gamma etc.')
+  }
+}
+```
+
+**$Delta with control variate$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+proc.time() - ptm
+result =  Likelihood_cv(n, S0, r, sigma, T, K, delta, 'delta')
+Delta_re = result[1]
+Delta_re_Std_err = result[2]
+
+result = cbind(mean(Delta_re), mean(Delta_re_Std_err))
+colnames(result) = c('Delta uisng Likelihood Ratio Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Vega with control variate$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Likelihood_cv(n, S0, r, sigma, T, K, delta, 'vega')
+proc.time() - ptm
+Vega_re = result[1]
+Vega_re_Std_err = result[2]
+
+result = cbind(mean(Vega_re), mean(Vega_re_Std_err))
+colnames(result) = c('Vega uisng Likelihood Ratio Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Gamma with control variate$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Likelihood_cv(n, S0, r, sigma, T, K, delta, 'gamma')
+proc.time() - ptm
+Gamma_re = result[1]
+Gamma_re_Std_err = result[2]
+
+result = cbind(mean(Gamma_re), mean(Gamma_re_Std_err))
+colnames(result) = c('Gamma uisng Likelihood Ratio Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Rho with control variate$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Likelihood_cv(n, S0, r, sigma, T, K, delta, 'rho')
+proc.time() - ptm
+Rho_re = result[1]
+Rho_re_Std_err = result[2]
+
+result = cbind(mean(Rho_re), mean(Rho_re_Std_err))
+colnames(result) = c('Rho uisng Likelihood Ratio Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Theta with control variate$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Likelihood_cv(n, S0, r, sigma, T, K, delta, 'theta')
+proc.time() - ptm
+Theta_re = result[1]
+Theta_re_Std_err = result[2]
+
+result = cbind(mean(Theta_re), mean(Theta_re_Std_err))
+colnames(result) = c('Theta uisng Likelihood Ratio Method with CV', 'Std Err')
+kable(result)
+```
+
+## Exact Value of Greeks
+
+$$
+\begin{align}
+Delta(\frac{dp}{dS_0}) &= e^{-\delta T}N(d_1(K))\notag\\
+Vega(\frac{dp}{d\sigma}) &= \sqrt{T}e^{-\delta T}S_0n(d_1(K))\notag\\
+Gamma(\frac{d^2p}{dS_0^2}) &= e^{-\delta T}\frac{n(d_1(K))}{S_0\sigma\sqrt{T}}\notag\\
+Rho(\frac{dp}{dr}) &= KTe^{-rT}N(d_2(K))\notag\\
+Theta(-\frac{dp}{dT}) &= -\frac{\sigma e^{-\delta T}S_0n(d_1(K))}{2\sqrt{T}}+\delta e^{-\delta T}S_0N(d_1(K)) - rKe^{-rT}N(d_2(K))\notag
+\end{align}
+$$
+Where, 
+$$
+d_1(x) = \frac{[ln(\frac{S_0}{x}) + (r-\delta+\frac{1}{2}\sigma^2)T]}{\sigma\sqrt{T}} = -d(x) + \sigma\sqrt{T},
+$$
+and $d_2 = -d(x)$, $N(\cdot)$ is the culmulative distribution function of a standard normal random variables and $n(\cdot)$ is the density function of the standard normal
+**initialized some common used variables**
+```{r}
+d1 = (log(S0/K) + (r - delta + 1/2*sigma^2)*T)/(sigma*sqrt(T))
+d = sigma*sqrt(T) - d1
+d2 = -d
+```
+
+
+```{r, warning = FALSE}
+delta_exact = exp(-delta*T)*pnorm(d1)
+vega_exact = sqrt(T)*exp(-delta*T)*S0*dnorm(d1)
+gamma_exact = exp(-delta*T)*dnorm(d1)/(S0*sigma*sqrt(T))
+rho_exact = K*T*exp(-r*T)*pnorm(d2)
+theta_exact = (-sigma*exp(-delta*T)*S0*dnorm(d1))/(2*sqrt(T)) +
+              delta*exp(-delta*T)*S0*pnorm(d1) - r*K*exp(-r*T)*pnorm(d2)
+
+result = rbind(delta_exact, vega_exact, gamma_exact, rho_exact, theta_exact)
+rownames(result) = c('Exact delta', 'Exact vega', 'Exact gamma', 'Exact rho', 'Exact theta')
+kable(result)
+```
+
+
+# 2. Asian Call Options
+
+## Likelihood Ratio method (w/o control variates)
+
+> List #2.
+
+The Likelihood ratio estimators:
+$$                      
+Vega(\frac{dp}{d\sigma}) = e^{-rT}\max(\bar{S} - K,0)\sum_{i=1}^m(-d_i*\frac{\partial d_i}{\partial\sigma}- \frac{1}{\sigma}) \notag\\ 
+Delta(\frac{dp}{dS_0}) = e^{-rT}\max(\bar{S} - K,0)\frac{1}{S_0\sigma^2\Delta t_1}\times(ln(\frac{S_1}{S_0})-(r-\delta-\frac{1}{2}\sigma^2)\Delta t_1) \notag\\
+Gamma(\frac{d^2p}{dS_0^2}) = e^{-rT}\max(\bar{S} - K,0)\frac{d_1^2-d_1\sigma\sqrt{\Delta t_1}-1}{S_0^2\sigma^2\Delta t_1} \notag\\
+Rho(\frac{dp}{dr}) = e^{-rT}\max(\bar{S} - K,0)(-T+\sum_{i=1}^m\frac{d_i\sqrt{\Delta t_i}}{\sigma}) \notag\\              
+Theta(-\frac{dp}{dT}) = e^{-rT}\max(\bar{S} - K,0)(r+d_1\frac{\partial d_1}{\partial T} + \frac{1}{2\Delta t_1}) \notag\\
+$$
+**Define function for estimating Asian Call options derivatives using LR method under BS model**
+
+variables                      output 
+--------------------           -----------------------------------
+n: # of simulations            hat_A_LR: the estimated derivatives of an Asian call option using LR method
+S0: the spot price             hat_A_LR_std_err: the standard error for estimating the derivatives of an Asian call option using LR method
+r: the rate of return
+sigma: volatility              
+T: maturity date
+K: strike price
+delta: dividend
+input: 'delta', 'vega',etc...
+s: the last s days 
+
+```{r}
+LR_A <- function(n, S0, r, sigma, T, K, delta, input,s)
+{
+  # create payoff
+  C = matrix(0,n,1)
+  
+  # create length n random normal vector before simulations
+  zi = matrix(qnorm(runif(n*s,0,1)),ncol=s,nrow=n)
+  
+  # create derivatives to store the estimated Greeks at each simulation
+  derivatives = matrix(0,n,1)
+  
+  # create tj for each increment of last few days
+  t_j = c(T - (s-1)/365.25, rep(1/365.25, s-1))
+  
+  # build function for d_i
+  d_i <- function(S, S_1, delta_t_i)
+  {
+    return((log(S/S_1)-(r-delta-sigma^2/2)*delta_t_i)/(sigma*sqrt(delta_t_i)))
+  }
+  # build function for d(d_i)/d(sigma)
+  partial_d_i <- function(S, S_1, delta_t_i)
+  {
+    return((log(S_1/S)+(r-delta+sigma^2/2)*delta_t_i)/(sigma^2*sqrt(delta_t_i)))
+  }
+  
+  if(input == 'delta')
+  {
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for delta for each simulation
+      derivatives[i] = exp(-r*T)*max(mean(stock[2:(s+1)])-K,0) * 1/(S0*sigma^2*t_j[1]) *
+                       (log(stock[2]/S0) - (r-delta-sigma^2/2)*t_j[1])
+    }
+    hat_A_LR = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_A_LR_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_A_LR, hat_A_LR_std_err))
+    
+  }else if (input == 'vega'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for vega for each simulation
+      derivatives[i] = exp(-r*T)*max(mean(stock[2:(s+1)])-K,0)*
+                       sum(-d_i(stock[2:nrow(stock)], stock[1:(nrow(stock)-1)], t_j)*
+                           partial_d_i(stock[2:nrow(stock)], stock[1:(nrow(stock)-1)], t_j)-
+                             1/sigma)
+    }
+    hat_A_LR = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_A_LR_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_A_LR, hat_A_LR_std_err))
+  
+  }else if (input == 'gamma'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # define d_1
+      d_1 = (log(stock[2]/stock[1]) - (r-delta-sigma^2/2)*t_j[1])/(sigma*sqrt(t_j[1]))
+      
+      # gives estimate for gamma for each simulation
+      derivatives[i] = exp(-r*T)*max(mean(stock[2:(s+1)])-K,0)*
+                      ((d_1^2 - d_1*sigma*sqrt(t_j[1])-1)/
+                         (S0^2*sigma^2*t_j[1]))
+    }
+    hat_A_LR = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_A_LR_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_A_LR, hat_A_LR_std_err))    
+  }else if (input == 'rho'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for rho for each simulation
+      derivatives[i] = exp(-r*T)*max(mean(stock[2:(s+1)])-K,0)*
+                       (-T + sum(d_i(stock[2:nrow(stock)], stock[1:(nrow(stock)-1)], t_j)*
+                                   sqrt(t_j)/sigma))
+    }
+    hat_A_LR = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_A_LR_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_A_LR, hat_A_LR_std_err))
+    
+  }else if (input == 'theta'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # define d(d_1)/dT
+      d_1_dT = (-log(stock[2]/stock[1]) - (r-delta-sigma^2/2)*t_j[1])/(2*sigma*t_j[1]^(3/2))
+      
+      # gives estimate for rho for each simulation
+      derivatives[i] = exp(-r*T)*max(mean(stock[2:(s+1)])-K,0)*
+                       (r + d_i(stock[2], stock[1], t_j[1]) *
+                          d_1_dT + 1/(2*t_j[1]))
+    }
+    hat_A_LR = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_A_LR_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_A_LR, hat_A_LR_std_err))
+    
+  }else{
+    cat('Please type in the proper name of the derivative! e.g. delta, gamma etc.')
+  }
+}
+```
+
+**initialized variables as the article suggested**
+```{r}
+# set variables
+n = 10000 # simulation tuns
+# S0 = 110
+# S0 = 110
+S0 = 110
+r = 0.1
+K = 100 
+delta = 0.03
+sigma = 0.25
+T = 0.2
+s = 30
+```
+
+**$Delta$**
+
+```{r}
+set.seed(123)
+
+#tic()
+ptm <- proc.time()
+result =  LR_A(n, S0, r, sigma, T, K, delta, 'delta',s)
+proc.time() - ptm
+#toc()
+Delta_re = result[1]
+Delta_re_Std_err = result[2]
+
+result = cbind(mean(Delta_re), mean(Delta_re_Std_err))
+colnames(result) = c('Delta of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Vega$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  LR_A(n, S0, r, sigma, T, K, delta, 'vega',s)
+proc.time() - ptm
+Vega_re = result[1]
+Vega_re_Std_err = result[2]
+
+result = cbind(mean(Vega_re), mean(Vega_re_Std_err))
+colnames(result) = c('Vega of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Gamma$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  LR_A(n, S0, r, sigma, T, K, delta, 'gamma',s)
+proc.time() - ptm
+Gamma_re = result[1]
+Gamma_re_Std_err = result[2]
+
+result = cbind(mean(Gamma_re), mean(Gamma_re_Std_err))
+colnames(result) = c('Gamma of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Rho$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  LR_A(n, S0, r, sigma, T, K, delta, 'rho',s)
+proc.time() - ptm
+Rho_re = result[1]
+Rho_re_Std_err = result[2]
+
+result = cbind(mean(Rho_re), mean(Rho_re_Std_err))
+colnames(result) = c('Rho of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Theta$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  LR_A(n, S0, r, sigma, T, K, delta, 'theta', s)
+proc.time() - ptm
+Theta_re = result[1]
+Theta_re_Std_err = result[2]
+
+result = cbind(mean(Theta_re), mean(Theta_re_Std_err))
+colnames(result) = c('Theta of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+## Likelihood Ratio method (w control variates)
+
+**Define function for estimating Asian Call options derivatives using LR method with CV under BS model**
+
+variables                      output 
+--------------------           -----------------------------------
+n: # of simulations            hat_A_LR_cv: the estimated derivatives of an Asian call option using Pathwise method with CV
+S0: the spot price             hat_A_LR_cv_std_err: the standard error for estimating the derivatives of an Asian call option using Pathwise method with CV
+r: the rate of return
+sigma: volatility              
+T: maturity date
+K: strike price
+delta: dividend
+input: 'delta', 'vega',etc...
+s: the last s days 
+
+```{r}
+LR_A_CV <- function(n, S0, r, sigma, T, K, delta, input,s)
+{
+  # create payoff
+  C = matrix(0,n,1)
+  
+  # create length n random normal vector before simulations
+  zi = matrix(qnorm(runif(n*s,0,1)),ncol=s,nrow=n)
+  
+  # create derivatives to store the estimated Greeks at each simulation
+  derivatives = matrix(0,n,1)
+  
+  # create tj for each increment of last few days
+  t_j = c(T - (s-1)/365.25, rep(1/365.25, s-1))
+  
+  # define E[S_T] as S_T_i
+  S_T_i = S0 * exp((r - delta)*T)
+  
+  # define matrix for storing the terminal stock price at each n
+  S_T = matrix(0,n,1)
+  
+  # build function for d_i
+  d_i <- function(S, S_1, delta_t_i)
+  {
+    return((log(S/S_1)-(r-delta-sigma^2/2)*delta_t_i)/(sigma*sqrt(delta_t_i)))
+  }
+  # build function for d(d_i)/d(sigma)
+  partial_d_i <- function(S, S_1, delta_t_i)
+  {
+    return((log(S_1/S)+(r-delta+sigma^2/2)*delta_t_i)/(sigma^2*sqrt(delta_t_i)))
+  }
+  
+  if(input == 'delta')
+  {
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for delta for each simulation
+      derivatives[i] = exp(-r*T)*max(mean(stock[2:(s+1)])-K,0) * 1/(S0*sigma^2*t_j[1]) *
+                       (log(stock[2]/S0) - (r-delta-sigma^2/2)*t_j[1])
+      # store terminal stock price at each n simulation
+      S_T[i] = stock[s+1]
+    }
+    # estimate beta
+    beta = c(cov(derivatives, S_T)/ var(S_T))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - S_T)
+    
+    # determine the estimator for delta of a plain call option
+    hat_A_LR_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_A_LR_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_A_LR_cv, hat_A_LR_cv_std_err))
+    
+  }else if (input == 'vega'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for vega for each simulation
+      derivatives[i] = exp(-r*T)*max(mean(stock[2:(s+1)])-K,0)*
+                       sum(-d_i(stock[2:nrow(stock)], stock[1:(nrow(stock)-1)], t_j)*
+                           partial_d_i(stock[2:nrow(stock)], stock[1:(nrow(stock)-1)], t_j)-
+                             1/sigma)
+      # store terminal stock price at each n simulation
+      S_T[i] = stock[s+1]
+    }
+    # estimate beta
+    beta = c(cov(derivatives, S_T)/ var(S_T))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - S_T)
+    
+    # determine the estimator for delta of a plain call option
+    hat_A_LR_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_A_LR_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_A_LR_cv, hat_A_LR_cv_std_err))
+  
+  }else if (input == 'gamma'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # define d_1
+      d_1 = (log(stock[2]/stock[1]) - (r-delta-sigma^2/2)*t_j[1])/(sigma*sqrt(t_j[1]))
+      
+      # gives estimate for gamma for each simulation
+      derivatives[i] = exp(-r*T)*max(mean(stock[2:(s+1)])-K,0)*
+                      ((d_1^2 - d_1*sigma*sqrt(t_j[1])-1)/
+                         (S0^2*sigma^2*t_j[1]))
+      # store terminal stock price at each n simulation
+      S_T[i] = stock[s+1]
+    }
+    # estimate beta
+    beta = c(cov(derivatives, S_T)/ var(S_T))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - S_T)
+    
+    # determine the estimator for delta of a plain call option
+    hat_A_LR_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_A_LR_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_A_LR_cv, hat_A_LR_cv_std_err)) 
+  }else if (input == 'rho'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for rho for each simulation
+      derivatives[i] = exp(-r*T)*max(mean(stock[2:(s+1)])-K,0)*
+                       (-T + sum(d_i(stock[2:nrow(stock)], stock[1:(nrow(stock)-1)], t_j)*
+                                   sqrt(t_j)/sigma))
+      # store terminal stock price at each n simulation
+      S_T[i] = stock[s+1]
+    }
+    # estimate beta
+    beta = c(cov(derivatives, S_T)/ var(S_T))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - S_T)
+    
+    # determine the estimator for delta of a plain call option
+    hat_A_LR_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_A_LR_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_A_LR_cv, hat_A_LR_cv_std_err))
+    
+  }else if (input == 'theta'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # define d(d_1)/dT
+      d_1_dT = (-log(stock[2]/stock[1]) - (r-delta-sigma^2/2)*t_j[1])/(2*sigma*t_j[1]^(3/2))
+      
+      # gives estimate for rho for each simulation
+      derivatives[i] = exp(-r*T)*max(mean(stock[2:(s+1)])-K,0)*
+                       (r + d_i(stock[2], stock[1], t_j[1]) *
+                          d_1_dT + 1/(2*t_j[1]))
+      # store terminal stock price at each n simulation
+      S_T[i] = stock[s+1]
+    }
+    # estimate beta
+    beta = c(cov(derivatives, S_T)/ var(S_T))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - S_T)
+    
+    # determine the estimator for delta of a plain call option
+    hat_A_LR_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_A_LR_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_A_LR_cv, hat_A_LR_cv_std_err))
+    
+  }else{
+    cat('Please type in the proper name of the derivative! e.g. delta, gamma etc.')
+  }
+}
+```
+
+**initialized variables as the article suggested**
+```{r}
+# set variables
+n = 10000 # simulation tuns
+# S0 = 110
+# S0 = 110
+S0 = 110
+r = 0.1
+K = 100 
+delta = 0.03
+sigma = 0.25
+T = 0.2
+s = 30
+```
+
+**$Delta$**
+
+```{r}
+set.seed(123)
+
+#tic()
+ptm <- proc.time()
+result =  LR_A_CV(n, S0, r, sigma, T, K, delta, 'delta',s)
+proc.time() - ptm
+#toc()
+Delta_re = result[1]
+Delta_re_Std_err = result[2]
+
+result = cbind(mean(Delta_re), mean(Delta_re_Std_err))
+colnames(result) = c('Delta of Asian Call Opiton uisng Likelihood Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Vega$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  LR_A_CV(n, S0, r, sigma, T, K, delta, 'vega',s)
+proc.time() - ptm
+Vega_re = result[1]
+Vega_re_Std_err = result[2]
+
+result = cbind(mean(Vega_re), mean(Vega_re_Std_err))
+colnames(result) = c('Vega of Asian Call Opiton uisng Likelihood Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Gamma$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  LR_A_CV(n, S0, r, sigma, T, K, delta, 'gamma',s)
+proc.time() - ptm
+Gamma_re = result[1]
+Gamma_re_Std_err = result[2]
+
+result = cbind(mean(Gamma_re), mean(Gamma_re_Std_err))
+colnames(result) = c('Gamma of Asian Call Opiton uisng Likelihood Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Rho$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  LR_A_CV(n, S0, r, sigma, T, K, delta, 'rho',s)
+proc.time() - ptm
+Rho_re = result[1]
+Rho_re_Std_err = result[2]
+
+result = cbind(mean(Rho_re), mean(Rho_re_Std_err))
+colnames(result) = c('Rho of Asian Call Opiton uisng Likelihood Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Theta$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  LR_A_CV(n, S0, r, sigma, T, K, delta, 'theta', s)
+proc.time() - ptm
+Theta_re = result[1]
+Theta_re_Std_err = result[2]
+
+result = cbind(mean(Theta_re), mean(Theta_re_Std_err))
+colnames(result) = c('Theta of Asian Call Opiton uisng Likelihood Method with CV', 'Std Err')
+kable(result)
+```

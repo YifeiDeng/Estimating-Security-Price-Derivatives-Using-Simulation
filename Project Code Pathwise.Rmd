@@ -1,0 +1,1131 @@
+---
+title: "Pathwise Method"
+header-includes: \usepackage{bbm}
+output:
+  html_document: default
+  github_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+```
+
+*Reference Paper: Broadie, M. and Glasserman, P. (1996). Estimating security price derivatives using simulation, Management Science 42, 269–285.*
+
+# 1.European Call Options on Dividend Paying Assets
+
+## Pathwise method (w/o control variates)
+> List #1.
+
+The Pathwise estimators:
+$$                      
+Vega(\frac{dp}{d\sigma}) = e^{-rT}\mathbb{1}_{\{S_T \geq k\}}\frac{S_T}{\sigma}(ln(\frac{S_T}{S_0}) - (r-\delta+\frac{1}{2}\sigma^2)T) \notag\\ 
+Delta(\frac{dp}{dS_0}) = e^{-rT}\mathbb{1}_{\{S_T\geq k\}}\frac{S_T}{S_0} \notag\\
+Rho(\frac{dp}{dr}) = KTe^{-rT}\mathbb{1}_{\{S_T\geq k\}} \notag\\              
+Theta(-\frac{dp}{dT}) = re^{-rT}\max(S_T-K,0) - \mathbb{1}_{\{S_T\geq k\}}\frac{S_T}{2T}(ln(\frac{S_T}{S_0})+(r-\delta-\frac{1}{2}\sigma^2)T) \notag\\
+$$
+Where $S_T \text{ is given by } S_T = S_{t_i}= S_0e^{(r-\delta-\frac{\sigma^2}{2})T+\sigma\sqrt{T}Z_i}\text{with } Z_i\text{ a random standard normal distributed for i = 1,...,n}$ and by inversion we are approximating standard normal $Z_i$ by $\Phi^{-1}(U_i)$ with $U_i \sim i.i.d.Unifrom(0,1)$ random uniform over domain on (0,1). ($\Phi^{-1}(\cdot)$ is the CDF of standard normal distribution)
+
+And the estimator for $Delta$ using the Pathwise method for example is
+$$
+\begin{align}
+\hat{Delta}_{path} &= \frac{1}{n}\sum_{i=1}^n e^{-rT}\mathbb{1}_{\{S_{t_i}\geq k\}}\frac{S_{t_i}}{S_0}\notag
+\end{align}
+$$
+depending on parameter of interest from **List #1.**.
+
+Also notice that the pathwise derivative estimate method fails for $Q=e^{-rT}\mathbb{1}_{\{S_{t}\geq k\}}$ since $0 = \text{E}[\frac{\partial Q}{\partial S_0}] \neq \frac{\partial}{\partial S_0}\text{E}[Y]$. Thus, the method is invaild for estimating $Gamma$ of an European Call Option on dividend paying assets
+
+**Define function for estimating European Call options derivatives using Pathwise method under BS model**
+
+variables                      output 
+--------------------           -----------------------------------
+n: # of simulations            hat_path: the estimated derivatives of an European call option using Pathwise method
+S0: the spot price             hat_path_std_err: the standard error for estimating the derivatives of an European call option using Pathwise method
+r: the rate of return
+sigma: volatility              
+T: maturity date
+K: strike price
+delta: dividend
+input: 'delta', 'vega',etc...
+
+```{r}
+Pathwise <- function(n, S0, r, sigma, T, K, delta, input)
+{
+  # create payoff
+  C = matrix(0,n,1)
+  
+  # create length n random normal vector before simulations
+  zi = qnorm(runif(n,0,1))
+  
+  # create derivatives to store the estimated Greeks at each simulation
+  derivatives = matrix(0,n,1)
+  
+  # the stock simulated at one run
+  stock = S0 * exp((r - delta - sigma^2/2)*T 
+                            + sigma * sqrt(T) * zi)
+  
+  # create function for the indicator function
+  indicator <- function(stock, K)
+  {
+    indicator = matrix(0,n,1)
+    indicator[stock >= K] = 1
+    return(indicator)
+  }
+  
+  if(input == 'delta')
+  {
+    # gives estimate for delta
+    derivatives = exp(-r*T)*indicator(stock, K)*stock/S0
+    # determine the estimator for delta of a plain call option
+    hat_path = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_path_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_path, hat_path_std_err))
+    
+  }else if (input == 'vega'){
+    
+    # gives estimate for vega
+    derivatives = exp(-r*T) *indicator(stock, K)*stock/sigma*
+                  (log(stock/S0) - (r - delta + 1/2*sigma^2)*T)
+    
+    # determine the estimator for vega of a plain call option
+    hat_path = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_path_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_path, hat_path_std_err))
+  
+  }else if (input == 'rho'){
+    
+    # gives estimate for rho
+    derivatives = K*T*exp(-r*T)*indicator(stock, K)
+    
+    # determine the estimator for rho of a plain call option
+    hat_path = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_path_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_path, hat_path_std_err))
+    
+  }else if (input == 'theta'){
+    # gives estimate for theta for each simulation
+    derivatives = -indicator(stock, K)*exp(-r*T)*
+                  stock/(2*T)*(log(stock/S0)+(r-delta-1/2*sigma^2)*T)
+    # determine the estimator for theta of a plain call option
+    hat_path = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_path_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_path, hat_path_std_err))
+    
+  }else{
+    cat('Please type in the proper name of the derivative! e.g. delta, gamma etc.')
+  }
+}
+```
+
+**initialized variables as the article suggested**
+```{r}
+# set variables
+n = 10000 # simulation tuns
+#S0 = 110
+#S0 = 110
+S0 = 110
+r = 0.1
+K = 100 
+delta = 0.03
+sigma = 0.25
+T = 0.2
+```
+
+**$Delta$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Pathwise(n, S0, r, sigma, T, K, delta, 'delta')
+proc.time() - ptm
+Delta_re = result[1]
+Delta_re_Std_err = result[2]
+
+result = cbind(mean(Delta_re), mean(Delta_re_Std_err))
+colnames(result) = c('Delta uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Vega$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Pathwise(n, S0, r, sigma, T, K, delta, 'vega')
+proc.time() - ptm
+Vega_re = result[1]
+Vega_re_Std_err = result[2]
+
+result = cbind(mean(Vega_re), mean(Vega_re_Std_err))
+colnames(result) = c('Vega uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Gamma$**
+
+`NA` as indicate in the previous section
+
+**$Rho$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Pathwise(n, S0, r, sigma, T, K, delta, 'rho')
+proc.time() - ptm
+Rho_re = result[1]
+Rho_re_Std_err = result[2]
+
+result = cbind(mean(Rho_re), mean(Rho_re_Std_err))
+colnames(result) = c('Rho uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Theta$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Pathwise(n, S0, r, sigma, T, K, delta, 'theta')
+proc.time() - ptm
+Theta_re = result[1]
+Theta_re_Std_err = result[2]
+
+result = cbind(mean(Theta_re), mean(Theta_re_Std_err))
+colnames(result) = c('Theta uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+## Pathwise method (w control variates)
+
+For consistency, we use the same control variate, the terminal security price, for European call option example. (and so as for Asian Call option and Stochastic volatility options)
+
+
+We denote the unbiased simulation estimator of the derivatives as $D$, specifically the exact pathwise estimators defined as before. i.e. ($Vega(\frac{dp}{d\sigma})$,$Delta(\frac{dp}{dS_0})$ etc.)
+
+
+That is, d = E[D], where d is the true value of derivative to be estimated. We consider letting $S_T$ represent the simulated terminal underlying price of the security. Since E[$S_T$] = $e^{(r-\delta)T}S_0$, as for $ln(\frac{S_T}{S0})\sim N((r-\delta-\frac{\sigma^2}{2})T,\sigma^2T)$, then $exp(ln(\frac{S_T}{S0})) = \frac{S_T}{S0}$ has a log normal distribution with mean $E[\frac{S_T}{S0}] = e^{((r-\delta-\frac{\sigma^2}{2})T+(\sigma \sqrt{T})^2/2)} = e^{(r-\delta)T}$ i.e.E[$S_T$] = $e^{(r-\delta)T}S_0$
+
+
+Thus, to estimate E[D], we have found a r.v. $S_T$ correlated with D and such that $\sum_{i=1}^n\frac{S_T}{n} = E[S_T]$ is known. Then, we can obtained an unbiased estimator of derivative using control variate:
+
+$$
+D' = \frac{1}{n}\sum_{i=1}^{n}D_i+\beta(S_{T_i}-e^{(r-\delta)T}S_0)
+$$
+where $D_i$ are the unbiased pathwise estimators for the derivatives at each n simulations and $S_{T_i} = S_0e^{(r-\delta-\frac{\sigma^2}{2})T+\sigma\sqrt{T}Z_i}$ with $Z_i$ a random standard normal distributed for i = 1,...,n and by inversion we are approximating standard normal $Z_i$ by $\Phi^{-1}(U_i)$ with $U_i \sim i.i.d.Unifrom(0,1)$ random uniform over domain on (0,1). ($\Phi^{-1}(\cdot)$ is the CDF of standard normal distribution)
+
+
+In this case, $\beta$ can be chosen to minimized $Var(D')$ i.e. $\min_{\beta}(Var(D'))$ so that if the estimator D are regressed on $S_T$, the slope of the regression line solves the minimization problem, i.e. want to find $\beta$ that minmized $Var(D')$
+
+$$
+\begin{align}
+\frac{\partial}{\partial\beta}Var(D') &= \frac{\partial}{\partial\beta}[\frac{(Var(D))^2}{n}+\frac{\beta^2}{n}Var(S_T)-\frac{2\beta}{n}Cov(D,S_T)]\notag\\
+&=\frac{2\beta}{n}Var(S_T)-\frac{2}{n}Cov(D,S_T) = 0 \notag\\
+&\Rightarrow \beta^* = \frac{Cov(D,ST)}{Var(S_T)}
+\end{align}
+$$
+where $Var(D)$ is the sample variance of the simulation using the pathwise estimator i.e. $Var(D) = \frac{1}{n-1}\sum_{i=1}^{n}(D_i - \hat{D})^2$ and one can check it's a minimum: $\frac{\partial^2Var(D')}{\partial\beta^2} = \frac{2}{n}Var(S_T) \geq 0$ (Concave upward, min exists).
+
+**Define function for estimating European Call options derivatives using Pathwise method under BS model with control variate**
+
+variables                      output 
+--------------------           -----------------------------------
+n: # of simulations            hat_path_cv: the estimated derivatives of an European call option using Pathwise method with CV method
+S0: the spot price             hat_path_cv_std_err: the standard error for estimating the derivatives of an European call option using Pathwise method with CV method
+r: the rate of return
+sigma: volatility              
+T: maturity date
+K: strike price
+delta: dividend
+input: 'delta', 'vega',etc...
+
+```{r}
+Pathwise_cv <- function(n, S0, r, sigma, T, K, delta, input)
+{
+  # create length n random normal vector before simulations
+  zi = qnorm(runif(n,0,1))
+  
+  # create derivatives to store the estimated Greeks at each simulation
+  derivatives = matrix(0,n,1)
+  
+  # define E[S_T] as S_T_i
+  S_T_i = S0 * exp((r - delta)*T)
+  
+  # the stock simulated at one run
+  stock = S0 * exp((r - delta - sigma^2/2)*T 
+                            + sigma * sqrt(T) * zi)
+  
+  # create function for the indicator function
+  indicator <- function(stock, K)
+  {
+    indicator = matrix(0,n,1)
+    indicator[stock >= K] = 1
+    return(indicator)
+  }
+  
+  if(input == 'delta')
+  {
+    # gives estimate for delta using pathwise method
+    derivatives = exp(-r*T)*indicator(stock, K)*stock/S0
+    
+    # estimate beta
+    beta = c(cov(derivatives, stock)/ var(stock))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - stock)
+    
+    # determine the estimator for delta of a plain call option
+    hat_path_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_path_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_path_cv, hat_path_cv_std_err))
+    
+  }else if (input == 'vega'){
+    
+    # gives estimate for vega
+    derivatives = exp(-r*T) *indicator(stock, K)*stock/sigma*
+                  (log(stock/S0) - (r - delta + 1/2*sigma^2)*T)
+    
+    # estimate beta
+    beta = c(cov(derivatives, stock)/ var(stock))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - stock)
+    
+    # determine the estimator for delta of a plain call option
+    hat_path_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_path_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_path_cv, hat_path_cv_std_err))
+  
+  }else if (input == 'rho'){
+    
+    # gives estimate for rho
+    derivatives = K*T*exp(-r*T)*indicator(stock, K)
+    
+    # estimate beta
+    beta = c(cov(derivatives, stock)/ var(stock))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - stock)
+    
+    # determine the estimator for delta of a plain call option
+    hat_path_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_path_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_path_cv, hat_path_cv_std_err))
+    
+  }else if (input == 'theta'){
+    # gives estimate for theta for each simulation
+    derivatives = -indicator(stock, K)*exp(-r*T)*
+                  stock/(2*T)*(log(stock/S0)+(r-delta-1/2*sigma^2)*T)
+    
+    # estimate beta
+    beta = c(cov(derivatives, stock)/ var(stock))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - stock)
+    
+    # determine the estimator for delta of a plain call option
+    hat_path_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_path_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_path_cv, hat_path_cv_std_err))
+    
+  }else{
+    cat('Please type in the proper name of the derivative! e.g. delta, gamma etc.')
+  }
+}
+```
+
+**$Delta with control variate$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Pathwise_cv(n, S0, r, sigma, T, K, delta, 'delta')
+proc.time() - ptm
+Delta_re = result[1]
+Delta_re_Std_err = result[2]
+
+result = cbind(mean(Delta_re), mean(Delta_re_Std_err))
+colnames(result) = c('Delta uisng Pathwise Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Vega with control variate$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Pathwise_cv(n, S0, r, sigma, T, K, delta, 'vega')
+proc.time() - ptm
+Vega_re = result[1]
+Vega_re_Std_err = result[2]
+
+result = cbind(mean(Vega_re), mean(Vega_re_Std_err))
+colnames(result) = c('Vega uisng Pathwise Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Gamma with control variate$**
+
+`NA` as indicate in the previous section
+
+**$Rho with control variate$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Pathwise_cv(n, S0, r, sigma, T, K, delta, 'rho')
+proc.time() - ptm
+Rho_re = result[1]
+Rho_re_Std_err = result[2]
+
+result = cbind(mean(Rho_re), mean(Rho_re_Std_err))
+colnames(result) = c('Rho uisng Pathwise Method with CV', 'Std Err')
+kable(result)
+```
+
+**$Theta with control variate$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+
+result =  Pathwise_cv(n, S0, r, sigma, T, K, delta, 'theta')
+proc.time() - ptm
+Theta_re = result[1]
+Theta_re_Std_err = result[2]
+
+result = cbind(mean(Theta_re), mean(Theta_re_Std_err))
+colnames(result) = c('Theta uisng Pathwise Method with CV', 'Std Err')
+kable(result)
+```
+
+## Exact Value of Greeks
+
+$$
+\begin{align}
+Delta(\frac{dp}{dS_0}) &= e^{-\delta T}N(d_1(K))\notag\\
+Vega(\frac{dp}{d\sigma}) &= \sqrt{T}e^{-\delta T}S_0n(d_1(K))\notag\\
+Gamma(\frac{d^2p}{dS_0^2}) &= e^{-\delta T}\frac{n(d_1(K))}{S_0\sigma\sqrt{T}}\notag\\
+Rho(\frac{dp}{dr}) &= KTe^{-rT}N(d_2(K))\notag\\
+Theta(-\frac{dp}{dT}) &= -\frac{\sigma e^{-\delta T}S_0n(d_1(K))}{2\sqrt{T}}+\delta e^{-\delta T}S_0N(d_1(K)) - rKe^{-rT}N(d_2(K))\notag
+\end{align}
+$$
+Where, 
+$$
+d_1(x) = \frac{[ln(\frac{S_0}{x}) + (r-\delta+\frac{1}{2}\sigma^2)T]}{\sigma\sqrt{T}} = -d(x) + \sigma\sqrt{T},
+$$
+and $d_2 = -d(x)$, $N(\cdot)$ is the culmulative distribution function of a standard normal random variables
+**initialized some common used variables**
+```{r}
+d1 = (log(S0/K) + (r - delta + 1/2*sigma^2)*T)/(sigma*sqrt(T))
+d = sigma*sqrt(T) - d1
+d2 = -d
+```
+
+
+```{r, warning = FALSE}
+delta_exact = exp(-delta*T)*pnorm(d1)
+vega_exact = sqrt(T)*exp(-delta*T)*S0*dnorm(d1)
+gamma_exact = exp(-delta*T)*dnorm(d1)/(S0*sigma*sqrt(T))
+rho_exact = K*T*exp(-r*T)*pnorm(d2)
+theta_exact = (-sigma*exp(-delta*T)*S0*dnorm(d1))/(2*sqrt(T)) +
+              delta*exp(-delta*T)*S0*pnorm(d1) - r*K*exp(-r*T)*pnorm(d2)
+
+result = rbind(delta_exact, vega_exact, gamma_exact, rho_exact, theta_exact)
+rownames(result) = c('Exact delta', 'Exact vega', 'Exact gamma', 'Exact rho', 'Exact theta')
+kable(result)
+```
+
+# 2. Asian Call Options
+
+## Pathwise method (w/o control variates)
+> List #2.
+
+The Pathwise estimators:
+$$                      
+Vega(\frac{dp}{d\sigma}) = e^{-rT}\mathbb{1}_{\{\bar{S} \geq k\}}\frac{1}{s\sigma}\sum_{j=1}^sS^i_j(ln(\frac{S^i_j}{S_0}) - (r-\delta+\frac{1}{2}\sigma^2)t_j) \notag\\ 
+Delta(\frac{dp}{dS_0}) = e^{-rT}\mathbb{1}_{\{\bar{S}\geq k\}}\frac{\bar{S}}{S_0} \notag\\
+Gamma(\frac{d^2p}{dS_0^2}) = e^{-rT}(\frac{K}{S_0})^2sg(S_{s-1},w_s,\Delta t_s)\notag\\
+Rho(\frac{dp}{dr}) = e^{-rT}\mathbb{1}_{\{\bar{S}\geq k\}}(\frac{1}{s}\sum_{j=1}^{s}S_jt_j - T) \notag\\              
+Theta(-\frac{dp}{dT}) = re^{-rT}\max(\bar{S}-K,0) - \mathbb{1}_{\{\bar{S}\geq k\}}\frac{\bar{S}}{2t_1}\times(ln(\frac{S_1}{S_0})+(r-\delta-\frac{1}{2}\sigma^2)t_1) \notag\\
+$$
+where $\Delta t_j = t_j - t_{j-1}, w_s = s(K-\bar{S})+S_s$, $g(u,v,t) = \frac{n(d(u,v,t))}{v \sigma \sqrt{t}}$
+
+
+**Define function for estimating Asian Call options derivatives using Pathwise method under BS model**
+
+variables                      output 
+--------------------           -----------------------------------
+n: # of simulations            hat_A_path: the estimated derivatives of an Asian call option using Pathwise method
+S0: the spot price             hat_A_path_std_err: the standard error for estimating the derivatives of an Asian call option using Pathwise method
+r: the rate of return
+sigma: volatility              
+T: maturity date
+K: strike price
+delta: dividend
+input: 'delta', 'vega',etc...
+s: the last s days 
+
+```{r, warning=FALSE}
+Pathwise_A <- function(n, S0, r, sigma, T, K, delta, input,s)
+{
+  # create payoff
+  C = matrix(0,n,1)
+  
+  # create length n random normal vector before simulations
+  zi = matrix(qnorm(runif(n*s,0,1)),ncol=s,nrow=n)
+  
+  # create derivatives to store the estimated Greeks at each simulation
+  derivatives = matrix(0,n,1)
+  
+  # create tj for each increment of last few days
+  t_j = c(T - (s-1)/365.25, rep(1/365.25, s-1))
+  
+  # create function for the indicator function
+  indicator <- function(stock, K)
+  {
+    return(ifelse(stock >= K, 1, 0))
+  }
+  
+  if(input == 'delta')
+  {
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for delta for each simulation
+      derivatives[i] = exp(-r*T)*indicator((sum(stock)-S0)/s,K)*(sum(stock)-S0)/s/S0
+    }
+    hat_A_path = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_A_path_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_A_path, hat_A_path_std_err))
+    
+  }else if (input == 'vega'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for vega for each simulation
+      derivatives[i] = exp(-r*T)*indicator((sum(stock)-S0)/s,K) * 1/(s*sigma)* 
+                      (sum(stock[2:(nrow(stock))] *(log(stock[2:(nrow(stock))]/S0)
+                                                      - (r-delta+sigma^2/2)*cumsum(t_j))))
+    }
+    hat_A_path = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_A_path_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_A_path, hat_A_path_std_err))
+  
+  }else if (input == 'gamma'){
+    # define function for g(u,v,t)
+    g <- function(u, v, t)
+    {
+      d = (log(v/u) - (r-delta+sigma^2/2)*t)/(sigma*sqrt(t))
+      if(is.na(dnorm(d)))
+      {
+        g = NA
+      }else{
+        g = dnorm(d)/(v*sigma*sqrt(t))
+      }
+      return(g)
+    }
+    
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for gamma for each simulation
+      derivatives[i] = exp(-r*T)*(K/S0)^2*s*g(stock[(s+1)-1], 
+                                              s*(K-mean(stock[2:(s+1)])) + stock[s+1],
+                                              t_j[s])
+    }
+    hat_A_path = sum(derivatives,na.rm = TRUE)/n
+    
+    # determine the standard error of the estimator
+    hat_A_path_std_err = sqrt(var(derivatives,na.rm = TRUE)/n)
+    
+    # return the desire output
+    return(c(hat_A_path, hat_A_path_std_err))    
+  }else if (input == 'rho'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for rho for each simulation
+      derivatives[i] = indicator(mean(stock[2:(s+1)]),K) * exp(-r*T) *
+                        (1/s*sum(stock[2:(nrow(stock))]*cumsum(t_j))-T)
+    }
+    hat_A_path = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_A_path_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_A_path, hat_A_path_std_err))
+    
+  }else if (input == 'theta'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for rho for each simulation
+      derivatives[i] = r*exp(-r*T)*max(mean(stock[2:(s+1)])-K,0) -
+                      indicator(mean(stock[2:(s+1)]), K) * exp(-r*T)*
+                      mean(stock[2:(s+1)])/(2*t_j[1]) * (log(stock[2]/S0)+
+                      (r-delta-sigma^2/2)*t_j[1])
+    }
+    hat_A_path = sum(derivatives)/n
+    
+    # determine the standard error of the estimator
+    hat_A_path_std_err = sqrt(var(derivatives)/n)
+    
+    # return the desire output
+    return(c(hat_A_path, hat_A_path_std_err))
+    
+  }else{
+    cat('Please type in the proper name of the derivative! e.g. delta, gamma etc.')
+  }
+}
+```
+
+**initialized variables as the article suggested**
+```{r}
+# set variables
+n = 10000 # simulation tuns
+# S0 = 110
+# S0 = 110
+S0 = 110
+r = 0.1
+K = 100 
+delta = 0.03
+sigma = 0.25
+T = 0.2
+s = 30
+```
+
+**$Delta$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Pathwise_A(n, S0, r, sigma, T, K, delta, 'delta',s)
+proc.time() - ptm
+Delta_re = result[1]
+Delta_re_Std_err = result[2]
+
+result = cbind(mean(Delta_re), mean(Delta_re_Std_err))
+colnames(result) = c('Delta of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Vega$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Pathwise_A(n, S0, r, sigma, T, K, delta, 'vega',s)
+proc.time() - ptm
+Vega_re = result[1]
+Vega_re_Std_err = result[2]
+
+result = cbind(mean(Vega_re), mean(Vega_re_Std_err))
+colnames(result) = c('Vega of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Gamma$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Pathwise_A(n, S0, r, sigma, T, K, delta, 'gamma',s)
+proc.time() - ptm
+Gamma_re = result[1]
+Gamma_re_Std_err = result[2]
+
+result = cbind(mean(Gamma_re), mean(Gamma_re_Std_err))
+colnames(result) = c('Gamma of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Rho$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Pathwise_A(n, S0, r, sigma, T, K, delta, 'rho',s)
+proc.time() - ptm
+Rho_re = result[1]
+Rho_re_Std_err = result[2]
+
+result = cbind(mean(Rho_re), mean(Rho_re_Std_err))
+colnames(result) = c('Rho of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Theta$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Pathwise_A(n, S0, r, sigma, T, K, delta, 'theta', s)
+proc.time() - ptm
+Theta_re = result[1]
+Theta_re_Std_err = result[2]
+
+result = cbind(mean(Theta_re), mean(Theta_re_Std_err))
+colnames(result) = c('Theta of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+## Pathwise method (w control variates)
+
+**Define function for estimating Asian Call options derivatives using Pathwise method under BS model**
+
+variables                      output 
+--------------------           -----------------------------------
+n: # of simulations            hat_A_path: the estimated derivatives of an Asian call option using Pathwise method
+S0: the spot price             hat_A_path_std_err: the standard error for estimating the derivatives of an Asian call option using Pathwise method
+r: the rate of return
+sigma: volatility              
+T: maturity date
+K: strike price
+delta: dividend
+input: 'delta', 'vega',etc...
+s: the last s days 
+
+```{r, warning=FALSE}
+Pathwise_A_cv <- function(n, S0, r, sigma, T, K, delta, input,s)
+{
+  # create payoff
+  C = matrix(0,n,1)
+  
+  # create length n random normal vector before simulations
+  zi = matrix(qnorm(runif(n*s,0,1)),ncol=s,nrow=n)
+  
+  # create derivatives to store the estimated Greeks at each simulation
+  derivatives = matrix(0,n,1)
+  
+  # create tj for each increment of last few days
+  t_j = c(T - (s-1)/365.25, rep(1/365.25, s-1))
+  
+  # define S_T
+  S_T = matrix(0,n,1)
+  
+  # define E[S_T] as S_T_i
+  S_T_i = S0 * exp((r - delta)*T)
+  
+  # create function for the indicator function
+  indicator <- function(stock, K)
+  {
+    return(ifelse(stock >= K, 1, 0))
+  }
+  
+  if(input == 'delta')
+  {
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for delta for each simulation
+      derivatives[i] = exp(-r*T)*indicator((sum(stock)-S0)/s,K)*(sum(stock)-S0)/s/S0
+      # store terminal stock price at each n simulation
+      S_T[i] = stock[s+1]
+    }
+    # estimate beta
+    beta = c(cov(derivatives, S_T)/ var(S_T))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - S_T)
+    
+    # determine the estimator for delta of a plain call option
+    hat_A_path_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_A_path_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_A_path_cv, hat_A_path_cv_std_err))
+    
+  }else if (input == 'vega'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for vega for each simulation
+      derivatives[i] = exp(-r*T)*indicator((sum(stock)-S0)/s,K) * 1/(s*sigma)* 
+                      (sum(stock[2:(nrow(stock))] *(log(stock[2:(nrow(stock))]/S0)
+                                                      - (r-delta+sigma^2/2)*cumsum(t_j))))
+      # store terminal stock price at each n simulation
+      S_T[i] = stock[s+1]
+    }
+    # estimate beta
+    beta = c(cov(derivatives, S_T)/ var(S_T))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - S_T)
+    
+    # determine the estimator for delta of a plain call option
+    hat_A_path_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_A_path_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_A_path_cv, hat_A_path_cv_std_err))
+  
+  }else if (input == 'gamma'){
+    # define function for g(u,v,t)
+    g <- function(u, v, t)
+    {
+      d = (log(v/u) - (r-delta+sigma^2/2)*t)/(sigma*sqrt(t))
+      if(is.na(dnorm(d)))
+      {
+        g = 0
+      }else{
+        g = dnorm(d)/(v*sigma*sqrt(t))
+      }
+      return(g)
+    }
+    
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for gamma for each simulation
+      derivatives[i] = exp(-r*T)*(K/S0)^2*s*g(stock[(s+1)-1], 
+                                              s*(K-mean(stock[2:(s+1)])) + stock[s+1],
+                                              t_j[s])
+      # store terminal stock price at each n simulation
+      S_T[i] = stock[s+1]
+    }
+    # estimate beta
+    beta = c(cov(derivatives, S_T)/ var(S_T))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - S_T)
+    
+    # determine the estimator for delta of a plain call option
+    hat_A_path_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_A_path_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_A_path_cv, hat_A_path_cv_std_err))   
+  }else if (input == 'rho'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for rho for each simulation
+      derivatives[i] = indicator(mean(stock[2:(s+1)]),K) * exp(-r*T) *
+                        (1/s*sum(stock[2:(nrow(stock))]*cumsum(t_j))-T)
+      # store terminal stock price at each n simulation
+      S_T[i] = stock[s+1]
+    }
+    # estimate beta
+    beta = c(cov(derivatives, S_T)/ var(S_T))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - S_T)
+    
+    # determine the estimator for delta of a plain call option
+    hat_A_path_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_A_path_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_A_path_cv, hat_A_path_cv_std_err))
+    
+  }else if (input == 'theta'){
+    # start the simulation
+    for(i in 1:n)
+    {
+      # define matrix that store the stock price along the path
+      stock = matrix(0,s+1,1)
+      
+      # initialized with spot price
+      stock[1] = S0
+      
+      # calculate the stock price in each path
+      for(j in 2:(s+1))
+      {
+        # generate stock price for each simulation
+        stock[j] = stock[j-1]* 
+          exp((r - delta - sigma^2/2) * t_j[j-1] + sigma * sqrt(t_j[j-1]) * zi[i,j-1])
+      }
+      # gives estimate for rho for each simulation
+      derivatives[i] = r*exp(-r*T)*max(mean(stock[2:(s+1)])-K,0) -
+                      indicator(mean(stock[2:(s+1)]), K) * exp(-r*T)*
+                      mean(stock[2:(s+1)])/(2*t_j[1]) * (log(stock[2]/S0)+
+                      (r-delta-sigma^2/2)*t_j[1])
+      # store terminal stock price at each n simulation
+      S_T[i] = stock[s+1]
+    }
+    # estimate beta
+    beta = c(cov(derivatives, S_T)/ var(S_T))
+    
+    # apply control variates to the method
+    derivatives_cv = derivatives + beta*(S_T_i - S_T)
+    
+    # determine the estimator for delta of a plain call option
+    hat_A_path_cv = sum(derivatives_cv)/n
+    
+    # determine the standard error of the estimator
+    hat_A_path_cv_std_err = sqrt(var(derivatives_cv)/n)
+    
+    # return the desire output
+    return(c(hat_A_path_cv, hat_A_path_cv_std_err))
+    
+  }else{
+    cat('Please type in the proper name of the derivative! e.g. delta, gamma etc.')
+  }
+}
+```
+
+**initialized variables as the article suggested**
+```{r}
+# set variables
+n = 10000 # simulation tuns
+# S0 = 110
+# S0 = 110
+S0 = 110
+r = 0.1
+K = 100 
+delta = 0.03
+sigma = 0.25
+T = 0.2
+s = 30
+```
+
+**$Delta$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Pathwise_A_cv(n, S0, r, sigma, T, K, delta, 'delta',s)
+proc.time() - ptm
+Delta_re = result[1]
+Delta_re_Std_err = result[2]
+
+result = cbind(mean(Delta_re), mean(Delta_re_Std_err))
+colnames(result) = c('Delta of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Vega$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Pathwise_A_cv(n, S0, r, sigma, T, K, delta, 'vega',s)
+proc.time() - ptm
+Vega_re = result[1]
+Vega_re_Std_err = result[2]
+
+result = cbind(mean(Vega_re), mean(Vega_re_Std_err))
+colnames(result) = c('Vega of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Gamma$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Pathwise_A_cv(n, S0, r, sigma, T, K, delta, 'gamma',s)
+proc.time() - ptm
+Gamma_re = result[1]
+Gamma_re_Std_err = result[2]
+
+result = cbind(mean(Gamma_re), mean(Gamma_re_Std_err))
+colnames(result) = c('Gamma of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Rho$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Pathwise_A_cv(n, S0, r, sigma, T, K, delta, 'rho',s)
+proc.time() - ptm
+Rho_re = result[1]
+Rho_re_Std_err = result[2]
+
+result = cbind(mean(Rho_re), mean(Rho_re_Std_err))
+colnames(result) = c('Rho of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
+
+**$Theta$**
+
+```{r}
+set.seed(123)
+ptm <- proc.time()
+result =  Pathwise_A_cv(n, S0, r, sigma, T, K, delta, 'theta', s)
+proc.time() - ptm
+Theta_re = result[1]
+Theta_re_Std_err = result[2]
+
+result = cbind(mean(Theta_re), mean(Theta_re_Std_err))
+colnames(result) = c('Theta of Asian Call Opiton uisng Pathwise Method', 'Std Err')
+kable(result)
+```
